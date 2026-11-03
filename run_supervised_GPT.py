@@ -1,0 +1,67 @@
+"""Run a supervised evaluation using the existing SUMO evaluation project.
+
+Examples (run from agents folder):
+  py run_supervised_GPT.py --controller static --seeds 1
+  py run_supervised_GPT.py --controller fixed --seeds 1
+  py run_supervised_GPT.py --controller rl --kind marl --algo ppo --model models/model.zip --name marl_ppo --seeds 1
+This is a full simulation episode per seed, not a short 1-cycle smoke test.
+"""
+import argparse
+import os
+
+import tod_plan as tp
+import tod_eval_common as ec
+from sumo_env_marl_ps import SumoMARLEnvPS
+from supervisor.config import load_config, validate_against_env
+from supervisor.conflicts import load_fixture
+from supervisor.supervised_controller_GPT import SupervisedController
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--controller', choices=['static','fixed','rl'], required=True)
+    p.add_argument('--kind', choices=['marl','sarl'])
+    p.add_argument('--algo', choices=['ppo','dqn'])
+    p.add_argument('--model')
+    p.add_argument('--name')
+    p.add_argument('--seeds', type=int, default=1)
+    p.add_argument('--peak-scale', type=float, default=ec.DEFAULT_SCALE)
+    p.add_argument('--routes-src', default='2int_files/routes.xml')
+    p.add_argument('--gen-dir')
+    p.add_argument('--config')
+    p.add_argument('--out', default='supervisor_logs/decisions_GPT.jsonl')
+    args = p.parse_args()
+    if not 1 <= args.seeds <= len(ec.STANDARD_SEEDS): p.error('seeds outside available range')
+    if args.controller == 'rl' and not all((args.kind,args.algo,args.model,args.name)):
+        p.error('RL requires --kind, --algo, --model and --name')
+    config, sup = ec.make_config(), load_config(args.config)
+    matrix = load_fixture(sup.conflicts.fixture_path)
+    mix = tp.load_route_mix(args.routes_src)
+    peak = args.peak_scale * tp.ORIGINAL_RATE_VPH
+    if args.controller == 'static':
+        schedule = tp.build_schedule(mix, config['lane_map'], peak, config['cycle_length'],
+                                     config['yellow_time'], config['allred_time'], config['s_lb'], config['s_ub'])
+        inner = ec.StaticController(schedule)
+    elif args.controller == 'fixed': inner = ec.FixedController()
+    else:
+        from stable_baselines3 import PPO, DQN
+        model = (PPO if args.algo == 'ppo' else DQN).load(args.model)
+        policy = ec.MarlPolicy if args.kind == 'marl' else ec.SarlPolicy
+        inner = policy(model, args.name, deterministic=True)
+    gen_dir = args.gen_dir or ec.default_gen_dir(args.peak_scale)
+    os.makedirs(gen_dir, exist_ok=True)
+    env = SumoMARLEnvPS(config)
+    try:
+        validate_against_env(sup, env)
+        with SupervisedController(inner, sup, matrix, log_path=args.out, run_id=args.name) as ctrl:
+            for seed in ec.STANDARD_SEEDS[:args.seeds]:
+                route_file = os.path.join(gen_dir, f'routes_seed{seed}.xml')
+                tp.generate_route_file(route_file, mix, seed, peak)
+                # run_episode resets the environment; clear the latch just before it.
+                ctrl.reset_episode(episode_id=seed)
+                cycles, trips = ec.run_episode(env, seed, route_file, ctrl)
+                print(f'seed {seed}: {len(cycles)} cycles, {len(trips)} trips, final modes {ctrl.modes}; log {args.out}')
+    finally:
+        env.close()
+
+if __name__ == '__main__': main()
