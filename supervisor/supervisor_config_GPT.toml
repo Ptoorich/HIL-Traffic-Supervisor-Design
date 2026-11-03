@@ -1,0 +1,113 @@
+# ASTA supervisor configuration (Fast Gate).
+# Every key is required: a missing or unknown key is a startup error (D8).
+# Values marked CALIBRATE are filled from calibration runs, not guessed.
+
+[timing]
+# Wall-clock budget for the WHOLE supervisory process, from receiving the
+# ASTA proposal to the LED write returning (L4 amended). ARBITRARY for now;
+# revisit after testing.
+total_budget_s        = 3.0
+# Stage deadlines inside that budget. Snapshot + Fast Gate checks share one.
+fast_gate_stage_s     = 2.0
+resolver_stage_s      = 0.1
+# (LED write gets the remainder, enforced by the serial write_timeout.)
+
+cycle_s               = 90      # asserted equal to env.cycle_length at startup
+yellow_s              = 3       # asserted equal to env.yellow_time
+allred_s              = 3       # asserted equal to env.allred_time
+hard_min_green_s      = 7.0     # SARTSM absolute minimum
+latency_margin_s      = 1.0     # added to the hard minimum -> reject below 8.0
+pref_min_green_s      = 11.0    # SARTSM preferred minimum -> warn below this
+
+[snapshot]
+# SUMO 1.28 returns lane occupancy as a FRACTION 0..1 (verified on a toy net),
+# although the docs say percent. Verify on your SUMO 1.27.1 with
+# probe_jam_occupancy.py, then set this to "fraction" or "percent".
+occupancy_unit        = "fraction"
+
+[validator]
+# SUMO vehicles can legitimately exceed the lane limit (speedFactor ~ N(1, 0.1)),
+# so the speed bounds are factors of the limit, generous on purpose: they exist
+# to catch sensor garbage, not fast drivers.
+speed_warn_factor         = 1.2   # mean speed above limit x this = WARN
+speed_fail_factor         = 1.5   # mean speed above limit x this = FAIL
+count_slack_vehicles      = 1     # count in (capacity, capacity + slack] = WARN; above = FAIL
+all_halting_max_speed_mps = 0.5   # all vehicles halting but mean speed above this = impossible
+high_speed_mps            = 3.0   # "high speed" for the speed/occupancy cross-check
+high_speed_max_occupancy  = 0.95  # occupancy (fraction) above which high speed is impossible
+
+[classifier]
+vehicle_length_m              = 5.0   # SUMO default passenger length (no vType in the route files)
+gridlock_speed_mps            = 0.5
+gridlock_occupancy_frac_of_jam = 0.9  # x (capacity * vehicle_length / lane_length)
+gridlock_fill_frac            = 0.9   # halting / capacity
+gridlock_lane_fraction        = 0.5   # junction gridlocked when >= this share of its non-excluded lanes qualify
+
+# With no jammed lanes: FREE at or below this mean fill; otherwise LIGHT.
+# One or two jammed lanes: HEAVY; three of five: GRIDLOCK.
+free_max                     = 0.10
+
+[contingency]
+# Webster static plan (L6): phase A green, seconds.
+tl1 = 31
+tl2 = 59
+
+[conflicts]
+# Written once by dump_conflicts_GPT.py from the net file; loaded at startup.
+fixture_path  = "supervisor/conflicts_2int_GPT.json"
+
+[logging]
+jsonl_path    = "supervisor_logs/decisions.jsonl"
+
+# Lane capacities (L9). EMPIRICAL max halting vehicles from network_capacity_test.py.
+# excluded = true: not used for the Gridlock test or the classifier (L9).
+# Excluded lanes carry their THEORETICAL capacity (length // 7.5), used only
+# by the Input Validator's range check.
+[lanes."596638461#0_0"]
+agent = "tl1"
+capacity = 10
+excluded = false
+[lanes."4761588#1_0"]
+agent = "tl1"
+capacity = 13
+excluded = false
+[lanes."4761588#1_1"]
+agent = "tl1"
+capacity = 13
+excluded = false
+[lanes."4761588#1_2"]
+agent = "tl1"
+capacity = 13
+excluded = false
+[lanes."4761588#1_3"]
+agent = "tl1"
+capacity = 13
+excluded = false
+[lanes."-621271001_0"]
+agent = "tl2"
+capacity = 10
+excluded = false
+[lanes."669676574#0_0"]
+agent = "tl2"
+capacity = 194
+excluded = true
+[lanes."1190301745#0_0"]
+agent = "tl2"
+capacity = 4
+excluded = false
+[lanes."-669676574#8_0"]
+agent = "tl2"
+capacity = 115
+excluded = true
+[lanes."622835372_0"]
+agent = "tl2"
+capacity = 14
+excluded = false
+[lanes."622835372_1"]
+agent = "tl2"
+capacity = 14
+excluded = false
+[lanes."622835372_2"]
+agent = "tl2"
+capacity = 14
+excluded = false
