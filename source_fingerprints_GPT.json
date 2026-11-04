@@ -1,0 +1,25 @@
+{
+  "note": "SHA-256 after CRLF to LF normalization, from source_review_GPT.zip supplied with handoff 6.",
+  "files": {
+    "sumo_env_marl_ps.py": "47cf2d9ff42bdd2919ef793d860b799dba8f766bad491a15e44b4b702f8acaac",
+    "tod_eval_common.py": "41c034dddd596b3142ce271993e340a86a524701a9d2dbcda7fb5742e658d426",
+    "tod_plan.py": "d195e5fae9ce1e3e1aa4545357312b02db80fb7046733fe22b4718c8ba464023",
+    "supervisor/supervised_controller_GPT.py": "ddeadc3200fb8a60c5fb2bc075f17b68daa0375188128ec2dcd85f0b7818b8ee",
+    "supervisor/fast_gate.py": "ba425dad8706f9cb5f319e0cf684315ea3cf77f679e05102f64dcef64e244624",
+    "supervisor/snapshot.py": "25932fb17e69c2b4728d8f7f4ce372b2e922bc28b776718df958df40c9f66a5e",
+    "supervisor/config.py": "717bbea3827e9946225594ba5cd622fdcf272dd954d8d1ae71f4560834e425d5",
+    "supervisor/config_GPT.py": "0f561a8ee8008efa9d665c30a67136ddd957238309964b3da9e612594f810050",
+    "supervisor/datatypes.py": "bac9813fef75222e836bf9c72bed5fd9cf96c674933c5a71f18fe43129fad180",
+    "supervisor/datatypes_GPT.py": "a3d07882d8b987d949c8c8ee9f0fbd0c88d6abad8b92eb7021912b9224a25561",
+    "supervisor/conflicts.py": "19645eadd02b1e46bbbf218dc7099a4333c69653f852fff782cb42145df61c2f",
+    "supervisor/conflicts_GPT.py": "f63ceafd1931a37ff6a8b50924a72af0fcfa9e8a718e1562fd5a529cf808472b",
+    "supervisor/checks/__init__.py": "569badde3d005d9229efc3c8908fb7292cf7138a90422d83ea92bf22de88f66c",
+    "supervisor/checks/input_validator.py": "1f0f4cb18b265fcc742cab3e60981d916f99f5b2a11c65bcd8476d3934a7a768",
+    "supervisor/checks/traffic_classifier.py": "31bd174d574fe1f15c23790c0518f50eb7affecf55d0c39386e32d67a87a571e",
+    "supervisor/checks/traffic_classifier_GPT.py": "649f07db50ef5ff0835edbb8b88ab03f044aaf3e058d8b2299eb30a8c833bee6",
+    "supervisor/checks/safe_gate.py": "611df9b2dfe6b9ae7d4991fc3d8e5cd0033f13b737614098103b1d0d3c70aad4",
+    "supervisor/checks/conflict_monitor.py": "835c83faaa757c6aeb569b049efae3e5099045563b761b99f2543f6590234eed",
+    "supervisor/supervisor_config_GPT.toml": "9c68404911013e880a11d924757506cbce852134c2cdfb1240e9963519ae4920",
+    "supervisor/conflicts_2int_GPT.json": "47f6aaf2b72fc8ca097778a7a46020a7a7c7c230d1313e641a31b7a13f820adb"
+  }
+}
