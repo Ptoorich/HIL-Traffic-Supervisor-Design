@@ -6,6 +6,7 @@ validated physical traffic signal controller. The legacy path stays separate.
 from __future__ import annotations
 
 from collections import deque
+from contextlib import nullcontext
 import gzip
 import hashlib
 import json
@@ -25,6 +26,7 @@ from .recovery_GPT import Recovery, valid_pending
 from .slow_monitor_GPT import (StepProbe, aggregate_window, behavior_summary,
                                capture_boundary, evaluate_experimental_rule)
 from .supervised_integrated_GPT import IntegratedSupervisedController
+from .hil_timing_GPT import BoundaryTiming, TimedPolicy
 
 
 def sha256(path):
@@ -44,7 +46,7 @@ def _contained_path(base, root, value):
     return path
 
 
-def isolate_scenario(project, seed_dir):
+def isolate_scenario(project, seed_dir, *, gui=False):
     """Copy the scenario and refuse explicit references outside the run copy."""
     source = project / '2int_files'
     if seed_dir.is_relative_to(source.resolve()):
@@ -74,6 +76,17 @@ def isolate_scenario(project, seed_dir):
         for node in root.iter():
             if node.get('file'):
                 _contained_path(path.parent, work, node.get('file'))
+    if gui:
+        tree = ET.parse(copied_config)
+        settings = tree.getroot().find('gui_only')
+        if settings is None:
+            settings = ET.SubElement(tree.getroot(), 'gui_only')
+        for key, value in (('start', 'true'), ('delay', '0'), ('quit-on-end', 'true')):
+            option = settings.find(key)
+            if option is None:
+                option = ET.SubElement(settings, key)
+            option.set('value', value)
+        tree.write(copied_config, encoding='utf-8', xml_declaration=True)
     return work, copied_config
 
 
@@ -114,20 +127,35 @@ def gate_ok(decision, policy, agent):
 
 class EvidenceProbe(StepProbe):
     """Use the trial's scoped step probe and check the active SUMO programme."""
-    def __init__(self, cfg, env, traci_mod):
+    def __init__(self, cfg, env, traci_mod, display=None, modes=None, transitions=(), timing=None):
         super().__init__(cfg, env.step_length, traci_mod)
         self.env, self.active_programs = env, None
+        self.display, self.modes, self.transitions = display, modes, transitions
+        self.timing = timing
 
     def step(self, *args, **kwargs):
+        if self.display is not None and self.steps == 0:
+            # env.step has applied actions; observe any phase-zero reset before advancing.
+            self.display.sample(self.env, self.traci, self.modes, self.transitions)
+            if self.timing is not None:
+                self.timing.boundary_ack(self.display.last_sample)
+        if self.display is not None:
+            self.display.prepare_step()
+            if self.timing is not None and self.steps == 0:
+                self.timing.before_first_step(self.display)
         result = super().step(*args, **kwargs)
         if self.steps == 1:
             self.active_programs = read_active_programs(self.env, self.traci)
+        if self.display is not None:
+            self.display.sample(self.env, self.traci, self.modes, self.transitions)
+            if self.timing is not None and self.steps == 1:
+                self.timing.first_step_ack(self.display.last_sample)
         return result
 
 
 def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
                 handback_enabled, max_cycles=None, traci_mod=traci,
-                controller_factory=None):
+                controller_factory=None, display=None):
     """Run one episode. An injectable controller factory supports mock tests."""
     if controller_factory is None:
         controller_factory = IntegratedSupervisedController
@@ -143,7 +171,11 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
                'handbacks_unverified_partial': {a: 0 for a in agents},
                'final_modes': None}
     decisions = out / 'decisions_GPT.jsonl'
-    with controller_factory(policy, cfg, matrix, log_path=decisions,
+    timing_context = (BoundaryTiming(out, clock=display.clock, budget_ms=cfg.timing.total_budget_s * 1000)
+                      if display is not None else nullcontext(None))
+    with timing_context as timing, \
+         controller_factory(TimedPolicy(policy, timing) if timing is not None else policy,
+                            cfg, matrix, log_path=decisions,
                             run_id=f'integrated_{policy.kind}') as ctrl:
         obs = env.reset(seed=seed, route_file=str(route))
         ctrl.reset_episode(episode_id=seed)
@@ -156,6 +188,8 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
             cycle = 0
             while True:
                 start = env.current_step
+                if timing is not None:
+                    timing.begin(cycle, start)
                 before = {a: float(env.phase_splits[a]) for a in agents}
                 programs_before = read_active_programs(env, traci_mod)
                 boundary_start = capture_boundary(cfg, traci_mod)
@@ -190,6 +224,8 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
 
                 actions = ctrl.act(env, obs, start,
                                    release_candidates=release_candidates if handback_enabled else None)
+                if timing is not None:
+                    timing.mark('decision_finished_at')
                 entry = ctrl.last_entry
                 if not isinstance(entry, dict) or set(entry.get('decisions', {})) != set(agents):
                     raise RuntimeError('Incomplete controller decision; no simulation step performed')
@@ -227,8 +263,13 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
                                 event('transition_started', agent=agent, sim_time=start,
                                       recovery=state.describe())
                 modes_after_act = dict(ctrl.modes)
-                with EvidenceProbe(cfg, env, traci_mod) as probe:
+                with EvidenceProbe(cfg, env, traci_mod, display=display,
+                                   modes=modes_after_act, transitions=transitions, timing=timing) as probe:
+                    if timing is not None:
+                        timing.mark('env_step_called_at')
                     obs, _, terminated = env.step(actions)
+                if timing is not None:
+                    timing.finish_cycle()
                 complete = probe.steps == env.step_length
                 end = start + probe.steps
                 programs = probe.active_programs
@@ -310,11 +351,17 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
                           f'pending={(probe.end_boundary or {}).get("pending_insertion")}')
                 if not can_continue:
                     break
+    if timing is not None:
+        measured = timing.summary()
+        summary['hil_timing'] = {k: measured[k] for k in (
+            'measurement_status', 'boundaries_completed', 'incomplete_or_invalid_boundaries',
+            'budget_ms', 'budget_status', 'budget_exceedances')}
     return summary
 
 
 def run_integrated(*, config, cfg, matrix, model, kind, model_path, name, seeds,
-                   mix, peak, run_dir, slow_enabled, handback_enabled, max_cycles=None):
+                   mix, peak, run_dir, slow_enabled, handback_enabled, max_cycles=None,
+                   hil_port=None, hil_speed=1.0):
     """Run independent isolated seed directories; neither flag changes defaults."""
     project = Path.cwd().resolve()
     root = Path(run_dir).resolve()
@@ -331,13 +378,14 @@ def run_integrated(*, config, cfg, matrix, model, kind, model_path, name, seeds,
             try:
                 route = out / f'routes_seed{seed}_GPT.xml'
                 tp.generate_route_file(str(route), mix, seed, peak)
-                work, copied_config = isolate_scenario(project, out)
+                work, copied_config = isolate_scenario(project, out, gui=config.get('use_gui', False))
                 seed_config = dict(config)
                 seed_config['sumocfg'] = str(copied_config)
                 meta = {'controller': name, 'kind': kind, 'seed': seed,
                         'peak_rate_vph': peak, 'route_sha256': sha256(route),
                         'model_sha256': sha256(model_path),
                         'slow_monitor_enabled': slow_enabled, 'auto_handback_enabled': handback_enabled,
+                        'sumo_gui': bool(config.get('use_gui', False)),
                         'parameters': {'traffic_window_cycles': 3, 'slow_backlog_min': 150,
                                        'slow_backlog_growth_min': 30, 'bound_cycles': 5,
                                        'alternating_split_cycles': 6, 'fixed_dwell_cycles': 5,
@@ -345,13 +393,23 @@ def run_integrated(*, config, cfg, matrix, model, kind, model_path, name, seeds,
                                        'sarl_selection_window': 10, 'slow_backlog_below': 100,
                                        'slow_backlog_cycles': 3, 'transition_cycles': 1},
                         'scope': 'experimental simulation; not hardware validation'}
+                if hil_port is not None:
+                    meta['hil'] = {'port': hil_port, 'speed': hil_speed, 'protocol': 1,
+                                   'watchdog_ms': 3000, 'ack_deadline_ms': 500}
                 (out/'metadata_GPT.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
                 os.chdir(work)
                 env = SumoMARLEnvPS(seed_config)
                 policy = StrictPolicy(kind, model, traci)
-                summary = run_episode(env, policy, cfg, matrix, seed, route, out,
-                                      slow_enabled=slow_enabled, handback_enabled=handback_enabled,
-                                      max_cycles=max_cycles)
+                serial_context = nullcontext(None)
+                if hil_port is not None:
+                    from .hil_serial_GPT import SerialDisplay
+                    from .hil_display_GPT import PhaseDisplay
+                    serial_context = SerialDisplay(hil_port, log_path=out/'display_GPT.jsonl')
+                with serial_context as transport:
+                    display = PhaseDisplay(transport, speed=hil_speed) if transport is not None else None
+                    summary = run_episode(env, policy, cfg, matrix, seed, route, out,
+                                          slow_enabled=slow_enabled, handback_enabled=handback_enabled,
+                                          max_cycles=max_cycles, display=display)
                 (out/'summary_GPT.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
                 print('Finished:', json.dumps(summary))
                 print(f'Output directory: {out}')

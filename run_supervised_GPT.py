@@ -37,13 +37,23 @@ def main():
                    help='enable the provisional gated handback for RL')
     p.add_argument('--run-dir', help='new, isolated output directory required with either opt-in feature')
     p.add_argument('--max-cycles', type=int, help='optional short opt-in smoke run per seed')
+    p.add_argument('--hil-port', help='opt-in UNO display serial port, e.g. COM4; RL only')
+    p.add_argument('--hil-speed', type=float, choices=[1.0, 3.0],
+                   help='HIL playback speed (default 1); requires --hil-port')
+    p.add_argument('--gui', action='store_true', help='show the live SUMO GUI')
     args = p.parse_args()
     if not 1 <= args.seeds <= len(ec.STANDARD_SEEDS): p.error('seeds outside available range')
     if args.controller == 'rl' and not all((args.kind,args.algo,args.model,args.name)):
         p.error('RL requires --kind, --algo, --model and --name')
-    enhanced = args.enable_slow_monitor or args.enable_auto_handback
+    enhanced = args.enable_slow_monitor or args.enable_auto_handback or args.hil_port is not None
+    if args.gui and not enhanced:
+        p.error('--gui requires --hil-port or an opt-in monitoring feature')
+    if args.hil_speed is not None and args.hil_port is None:
+        p.error('--hil-speed requires --hil-port')
+    if args.hil_port is not None and not args.hil_port.strip():
+        p.error('--hil-port cannot be empty')
     if enhanced:
-        if args.controller != 'rl': p.error('opt-in Slow Monitor and handback currently support RL only')
+        if args.controller != 'rl': p.error('opt-in monitoring, handback and HIL currently support RL only')
         if not args.run_dir: p.error('--run-dir is required with either opt-in feature')
         if args.gen_dir is not None: p.error('--gen-dir is not used by isolated opt-in runs')
         if args.out != 'supervisor_logs/decisions_GPT.jsonl':
@@ -53,6 +63,8 @@ def main():
     elif args.run_dir or args.max_cycles is not None:
         p.error('--run-dir and --max-cycles require an opt-in feature')
     config, sup = ec.make_config(), load_config(args.config)
+    if args.gui:
+        config['use_gui'] = True
     matrix = load_fixture(sup.conflicts.fixture_path)
     mix = tp.load_route_mix(args.routes_src)
     peak = args.peak_scale * tp.ORIGINAL_RATE_VPH
@@ -74,7 +86,8 @@ def main():
                        model_path=args.model, name=args.name, seeds=ec.STANDARD_SEEDS[:args.seeds],
                        mix=mix, peak=peak, run_dir=args.run_dir,
                        slow_enabled=args.enable_slow_monitor,
-                       handback_enabled=args.enable_auto_handback, max_cycles=args.max_cycles)
+                       handback_enabled=args.enable_auto_handback, max_cycles=args.max_cycles,
+                       hil_port=args.hil_port, hil_speed=args.hil_speed or 1.0)
         return
     gen_dir = args.gen_dir or ec.default_gen_dir(args.peak_scale)
     os.makedirs(gen_dir, exist_ok=True)

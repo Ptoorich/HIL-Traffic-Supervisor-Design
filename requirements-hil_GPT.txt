@@ -1,0 +1,2 @@
+# Optional Arduino transport; install alongside the existing requirements.txt.
+pyserial==3.5
