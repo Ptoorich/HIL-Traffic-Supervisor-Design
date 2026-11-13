@@ -16,6 +16,7 @@ from supervisor.conflicts import ConflictMatrix, JunctionConflicts
 from supervisor.hil_display_GPT import PhaseDisplay
 from supervisor.hil_serial_GPT import SerialDisplay, DisplayError, encode_frame, decode_frame, PHASE_MASKS
 from supervisor.hil_timing_GPT import BoundaryTiming, TimedPolicy
+from supervisor.sp28_monitor_GPT import SP28ReadbackFailure
 from supervisor.supervised_integrated_GPT import IntegratedSupervisedController
 from supervisor.tests.helpers import COMMANDED
 from supervisor.tests.test_integrated_runner_GPT import FakeEnvironment, FakeTaker, make_traci
@@ -195,13 +196,29 @@ class TimingTest(unittest.TestCase):
                 self.assertEqual(ack['ack_received_at'],acks[ack['sequence']]['ack_received_at'])
 
     def test_failed_first_step_ack_leaves_incomplete_measurement_and_fault(self):
-        with self.assertRaises(DisplayError):
+        # The integrated SP-28 monitor wraps a raw DisplayError into an
+        # explicitly classified execution-verification FAIL.
+        with self.assertRaises(SP28ReadbackFailure) as caught:
             self.run_loop('failed',wrong_sequence=3)
+        self.assertEqual(caught.exception.requirement, 'SP-28')
+        self.assertEqual(caught.exception.status, 'FAIL')
+        self.assertEqual(caught.exception.source, 'arduino_gpio_or_communication')
+        self.assertEqual(caught.exception.stage, 'after_simulation_step')
+        self.assertIsInstance(caught.exception.__cause__, DisplayError)
         out = self.root/'failed'
         result = json.loads((out/'timing_summary_GPT.json').read_text())
         self.assertEqual(result['boundaries_completed'],0)
         self.assertEqual(result['budget_status'],'INCOMPLETE')
         self.assertTrue(any(r['event']=='fault' for r in read_rows(out/'display_GPT.jsonl')))
+        execution_faults = [r for r in read_rows(out/'events_GPT.jsonl')
+                            if r.get('event') == 'execution_readback_FAIL']
+        self.assertEqual(len(execution_faults), 1)
+        self.assertEqual(execution_faults[0]['status'], 'FAIL')
+        self.assertEqual(execution_faults[0]['sim_time'], 1)
+        self.assertEqual(execution_faults[0]['step_in_cycle'], 1)
+        self.assertEqual(execution_faults[0]['source'], 'arduino_gpio_or_communication')
+        self.assertEqual(execution_faults[0]['response'], 'ABORT_UNTRUSTED_EXECUTION')
+        self.assertIs(execution_faults[0]['ftsc_commanded'], False)
 
     def test_zero_step_episode_has_no_false_completed_latency(self):
         _, out = self.run_loop('empty',stop_at=0)
