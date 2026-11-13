@@ -56,3 +56,55 @@ Retain the actual console output and any resulting fault logs. Tests may reveal 
 - Retain SP-28 as **partial / not accepted** until the full specified response and agreement target are demonstrated.
 
 No operational controller or firmware files were modified in this investigation.
+
+## Implementation update — 13 November 2026 (pending execution)
+
+New files:
+- `supervisor/sp28_monitor_GPT.py`: structured readback failure with requirement, FAIL, source, junction (if determinable), event timing, and safe-abort response.
+- `audit_sp28_GPT.py`: programme/GPIO agreement audit using one run folder's `observations_GPT.jsonl`, `display_GPT.jsonl`, and optional `events_GPT.jsonl`.
+- `supervisor/tests/test_sp28_audit_GPT.py`: five deterministic audit tests.
+
+Changed:
+- `supervisor/integrated_runner_GPT.py`: every executed simulation step now validates active SUMO programme even without HIL; if HIL is enabled, its existing every-step live-phase/GPIO-ACK verification continues. An SP-28 failure is logged to `events_GPT.jsonl` before the runner stops.
+- `supervisor/tests/test_sp28_readback_GPT.py`: the injected first-step mismatch test now requires a structured FAIL event at simulation time 1; the normal Fast Gate may still have approved the prior command (this is a distinct downstream execution fault).
+
+### Execute tests
+
+```powershell
+git fetch origin
+git switch sp28-verification-20261113_GPT
+python -m pytest -q supervisor/tests/test_sp28_readback_GPT.py supervisor/tests/test_sp28_audit_GPT.py
+python -m pytest -q supervisor/tests
+```
+
+Record exact pass/fail outputs and Python/SUMO versions. This branch was prepared remotely; **tests were not executed in the assistant's environment**.
+
+### Audit a completed HIL run
+
+```powershell
+python audit_sp28_GPT.py --run-dir "PATH\TO\ONE\RUN_FOLDER"
+```
+
+The target folder needs both `display_GPT.jsonl` and `observations_GPT.jsonl` from the same run. If logs are packaged as a ZIP, extract them first. The script writes `sp28_agreement_GPT.json` with counts for each junction and a combined percentage.
+
+The audit counts a junction-step as success only if: a recorded, uniquely matched STATE ACK exists with the correct combined GPIO mask; the HIL sample includes validated signal-state/programme evidence; and the programme phase A split matches the approved split recorded in cycle observations. Missing, duplicated or inconsistent records count as failures. Cycle boundaries may have two samples (end of previous cycle, and next cycle phase-zero reset); the latter is compared to the next approved programme. Optical LEDs are excluded from the numerical agreement count.
+
+**Limitations:** The percentage describes only the reconstructed assessed steps. Interrupted runs lacking a completed observation cycle cannot support full-run compliance. It is not statistical evidence of overall reliability or independent optical verification. The *mere fact* that the tests pass must not be reported as 99.9% compliance.
+
+### Physical LED observation log (fill only what was actually seen)
+
+| Item | Observation | Evidence file / time |
+|---|---|---|
+| Junction tl1 Phase A green, Phase B red | To record | |
+| tl1 A yellow, B red | To record | |
+| tl1 all red | To record | |
+| tl1 A red, B green | To record | |
+| tl1 A red, B yellow | To record | |
+| Junction tl2: repeat corresponding six states | To record | |
+| Fault, STOPPED and watchdog while Arduino remains powered | To record | |
+
+Note any defective LEDs/wiring, unexpected colours, and whether a state was directly observed or inferred from GPIO readback. Visual records establish only those observed states, not all-step automatic optical verification.
+
+### Reporting status
+
+SP-28 remains **not yet fully accepted** until tests and controlled-run audit are completed. The FAIL record represents a post-execution verification fault and stops the experimental run. A FAIL event is not, by itself, a successful safe FTSC handover.
