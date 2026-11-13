@@ -108,3 +108,17 @@ Note any defective LEDs/wiring, unexpected colours, and whether a state was dire
 ### Reporting status
 
 SP-28 remains **not yet fully accepted** until tests and controlled-run audit are completed. The FAIL record represents a post-execution verification fault and stops the experimental run. A FAIL event is not, by itself, a successful safe FTSC handover.
+
+## Archived HIL log audit compatibility (13 November 2026)
+
+The first audit of the pre-existing 10-cycle HIL record returned 0/1802 agreement, **but this was a parser artefact, not observed optical mismatch**. The older `sample` records omit `ack_sequence` and `ack_received_at`; earlier auditor versions therefore classified every otherwise available STATE ACK as missing.
+
+The revised auditor:
+- pairs a legacy `sample` to a *single* preceding STATE `ack` in the same USB session;
+- requires monotonically consistent `sampled_at <= ack.sent_at <= ack.host_monotonic <= sample.host_monotonic`; multiple unmatched ACKs or invalid timestamps are failures, never assumed matches;
+- uses explicit `(session, ack_sequence)` linkage when available in newer logs;
+- assesses actual executed simulation steps `start_time+1 .. end_time`, excluding the initial time-zero boundary; at a cycle end with two recorded samples, uses the **first** (post-step, old programme), not the subsequent phase-zero sample for the next cycle.
+
+For the archived 900-second ten-cycle run, the corrected step-based denominator should be **900 simulation steps × 2 junctions = 1,800 junction-step checks**, assuming all ten cycles were executed and logged. The pass percentage itself must be determined by rerunning the script on the original ZIP extraction; it must not be inferred from test-suite success or the prior 0% output.
+
+Legacy ACK linkage is weaker than explicit sampled sequence IDs. Present any passing archived percentage as retrospective evidence for the assessed recorded steps, not proof of all-step optical agreement or independent field reliability. The original invalid audit record should be superseded, not cited as an operational failure.
