@@ -97,3 +97,58 @@ def test_sp28_audit_unaccounted_interrupted_cycle_blocks_acceptance(tmp_path):
     result = audit_run(tmp_path)
     assert result["coverage_complete"] is False
     assert len(result["unaccounted_execution_faults"]) == 1
+
+def _to_legacy_log(folder):
+    """Recreate the archived format: STATE ACK then sample, no sample sequence."""
+    log = folder / "display_GPT.jsonl"
+    records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    receipts = {row["sequence"]: dict(row) for row in records
+                if row.get("event") == "ack"}
+    samples = [dict(row) for row in records if row.get("event") == "sample"]
+    old = []
+    for index, sample in enumerate(samples):
+        seq = sample.pop("ack_sequence")
+        sample.pop("ack_received_at")
+        receipt = receipts[seq]
+        receipt.pop("ack_received_at")
+        # All legacy clocks are monotonic; each sample occurs after the ACK.
+        begin = 100.0 + index
+        sample["sampled_at"] = begin
+        receipt["sent_at"] = begin + 0.1
+        receipt["host_monotonic"] = begin + 0.2
+        sample["host_monotonic"] = begin + 0.3
+        old.extend([receipt, sample])
+    _write(log, old)
+    return old
+
+
+def test_sp28_audit_archived_legacy_ack_log_with_ordering_and_timestamps(tmp_path):
+    _record(tmp_path)
+    _to_legacy_log(tmp_path)
+    result = audit_run(tmp_path)
+    assert result["total"]["agreement_pct"] == 100.0
+    assert result["ack_linkage"]["legacy_inferred_samples"] == 5
+    assert result["ack_linkage"]["explicit_sequence_samples"] == 0
+
+
+def test_sp28_audit_legacy_ack_with_bad_temporal_order_is_rejected(tmp_path):
+    _record(tmp_path)
+    records = _to_legacy_log(tmp_path)
+    # The event stream is intact, but the ACK was recorded before sampling
+    # began: legacy timestamp inference must refuse it.
+    records[0]["host_monotonic"] = records[1]["sampled_at"] - 0.01
+    _write(tmp_path / "display_GPT.jsonl", records)
+    result = audit_run(tmp_path)
+    assert result["total"]["failed"] == 2
+    assert "LEGACY_ACK_ORDER_OR_TIME_INVALID" in result["per_agent"]["tl1"]["failures"][0]["codes"]
+
+
+def test_sp28_audit_legacy_multiple_ack_before_sample_is_ambiguous(tmp_path):
+    _record(tmp_path)
+    records = _to_legacy_log(tmp_path)
+    # Two STATE ACKs before a single sample: no guessing which is right.
+    records.insert(1, dict(records[0]))
+    _write(tmp_path / "display_GPT.jsonl", records)
+    result = audit_run(tmp_path)
+    assert result["total"]["failed"] == 2
+    assert result["ack_linkage"]["legacy_unmatched_or_ambiguous_samples"] == 1
