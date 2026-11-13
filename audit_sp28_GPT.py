@@ -51,15 +51,30 @@ def audit_run(folder):
         raise ValueError("No completed observation cycles; cannot reconstruct expected command timeline.")
     samples = defaultdict(list)
     acks = defaultdict(list)
+    # Older HIL logs contain a completed STATE ACK immediately before its
+    # sample but omit the sample's ack_sequence and ack_received_at fields.
+    # Pair only an unambiguous, temporally consistent prior ACK in the same
+    # session. Modern logs retain exact sequence-number association.
+    pending_legacy = defaultdict(list)
+    legacy_receipt = {}
     for row in displays:
-        if row.get("event") == "sample":
-            timestamp = _step(row.get("sim_time"))
-            if timestamp is not None:
-                samples[timestamp].append(row)
-        elif row.get("event") == "ack" and row.get("kind") == "S":
+        if row.get("event") == "ack" and row.get("kind") == "S":
             seq = row.get("sequence")
             if type(seq) is int:
                 acks[(row.get("session"), seq)].append(row)
+            pending_legacy[row.get("session")].append(row)
+        elif row.get("event") == "sample":
+            timestamp = _step(row.get("sim_time"))
+            if timestamp is not None:
+                samples[timestamp].append(row)
+            session = row.get("session")
+            if row.get("ack_sequence") is None:
+                candidates = pending_legacy[session]
+                # Multiple ACKs since the previous sample are ambiguous:
+                # never guess which one belongs to this sample.
+                legacy_receipt[id(row)] = (candidates[0]
+                                            if len(candidates) == 1 else None)
+            pending_legacy[session].clear()
     expected = {}
     for observation in observations:
         start = _step(observation.get("start_time"))
@@ -86,12 +101,22 @@ def audit_run(folder):
     agents = sorted({a for row in expected.values() for a in row})
     outcomes = {a: {"assessed": 0, "agreed": 0, "failed": 0,
                     "failures": []} for a in agents}
+    linkage = {"explicit_sequence_samples": 0,
+               "legacy_inferred_samples": 0,
+               "legacy_unmatched_or_ambiguous_samples": 0}
     for sim_t, commanded in sorted(expected.items()):
         records = samples.get(sim_t, [])
         # A cycle boundary is recorded twice: end-of-previous-cycle and
         # phase-zero reset at the start of the following cycle. The later
         # sample corresponds to the newly approved command.
         row = records[-1] if 1 <= len(records) <= 2 else None
+        if row is not None:
+            if type(row.get("ack_sequence")) is int:
+                linkage["explicit_sequence_samples"] += 1
+            elif legacy_receipt.get(id(row)) is not None:
+                linkage["legacy_inferred_samples"] += 1
+            else:
+                linkage["legacy_unmatched_or_ambiguous_samples"] += 1
         for index, agent in enumerate(("tl1", "tl2")):
             if agent not in commanded:
                 continue
@@ -118,18 +143,37 @@ def audit_run(folder):
                     failures.append("INVALID_PHASE_CODES")
                 seq = row.get("ack_sequence")
                 session = row.get("session")
-                receipts = acks.get((session, seq), [])
+                is_explicit = type(seq) is int
+                receipts = (acks.get((session, seq), [])
+                            if is_explicit else
+                            ([legacy_receipt[id(row)]]
+                             if legacy_receipt.get(id(row)) is not None else []))
                 if len(receipts) != 1:
-                    failures.append("MISSING_OR_DUPLICATED_STATE_ACK")
+                    failures.append("MISSING_OR_AMBIGUOUS_STATE_ACK")
                 elif isinstance(phases, list) and len(phases) == 2 and all(
                     type(x) is int and x in range(6) for x in phases
                 ):
+                    receipt = receipts[0]
                     expected_mask = PHASE_MASKS[phases[0]] | (PHASE_MASKS[phases[1]] << 6)
-                    if receipts[0].get("mask") != expected_mask:
+                    if receipt.get("mask") != expected_mask:
                         failures.append("GPIO_ACK_MASK_MISMATCH")
-                    if (not isinstance(row.get("ack_received_at"), (int, float))
-                            or receipts[0].get("ack_received_at") != row["ack_received_at"]):
-                        failures.append("ACK_TIMESTAMP_MISMATCH")
+                    if is_explicit:
+                        if (not isinstance(row.get("ack_received_at"), (int, float))
+                                or receipt.get("ack_received_at") != row["ack_received_at"]):
+                            failures.append("ACK_TIMESTAMP_MISMATCH")
+                    else:
+                        # Legacy data contains ACK host_monotonic, and both
+                        # sampled_at/host_monotonic in the sample event.
+                        # Require sample start <= ACK log <= sample log, and
+                        # ACK send time within the same sampling interval.
+                        t_start = row.get("sampled_at")
+                        t_end = row.get("host_monotonic")
+                        t_ack = receipt.get("host_monotonic")
+                        t_sent = receipt.get("sent_at")
+                        if (not all(type(t) in (int, float) and math.isfinite(t)
+                                    for t in (t_start, t_sent, t_ack, t_end))
+                                or not (t_start <= t_sent <= t_ack <= t_end)):
+                            failures.append("LEGACY_ACK_ORDER_OR_TIME_INVALID")
             if failures:
                 target["failed"] += 1
                 if len(target["failures"]) < 25:
@@ -149,13 +193,19 @@ def audit_run(folder):
         "per_agent": outcomes,
         "total": total,
         "threshold_pct": 99.9,
+        "ack_linkage": linkage,
+        "ack_linkage_note": ("Explicit sequence pairing is stronger than legacy "
+                             "event-order/timestamp inference. The latter is "
+                             "supported evidence, not a recovered sequence ID."),
         "threshold_met_for_assessed_steps": (total["agreement_pct"] is not None
                                               and total["agreement_pct"] >= 99.9),
         "coverage_complete": not unaccounted_faults,
         "unaccounted_execution_faults": unaccounted_faults,
         "caution": ("A threshold pass is only for steps reconstructed from completed observation "
                     "cycles. No physical LED illumination or general reliability is established. "
-                    "Unaccounted interrupted-cycle faults prevent a full-run acceptance claim."),
+                    "Unaccounted interrupted-cycle faults prevent a full-run acceptance claim. "
+                    "Legacy sample-to-ACK association is inferred from ordering and timestamps, "
+                    "not proven by explicit sample sequence IDs."),
     }
 
 
@@ -169,6 +219,7 @@ def main(argv=None):
     output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n",
                       encoding="utf-8")
     print(json.dumps({"output": str(output), "total": report["total"],
+                      "ack_linkage": report["ack_linkage"],
                       "coverage_complete": report["coverage_complete"]}, indent=2))
     return 0 if report["threshold_met_for_assessed_steps"] and report["coverage_complete"] else 1
 
