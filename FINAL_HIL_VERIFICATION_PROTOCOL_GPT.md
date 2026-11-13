@@ -13,9 +13,13 @@ Run these in Windows CMD, from the repository root, with the .venv active:
     python -m pytest -q supervisor/tests
     python bench_arduino_GPT.py --list-ports
 
-Do not overwrite local uncommitted work. Confirm the final one-LCD Arduino sketch is flashed. IMPORTANT: the archived Arduino sketch in the connected GitHub repo still contains LED+serial+watchdog but not the later single-LCD firmware. Use the user's actual local final firmware, not the older repo sketch. Record its filename, SHA-256, board/AVR package, library versions and compile/upload outcome:
+Do not overwrite local uncommitted work. The actual final one-LCD firmware supplied in the user's saved project files has now been archived separately at:
 
-    certutil -hashfile "PATH_TO_FINAL_LCD_SKETCH.ino" SHA256
+    arduino\asta_display_final_LCD_GPT\asta_display_final_LCD_GPT.ino
+
+This is the final-LCD sketch to **compile and upload** to the Uno for acceptance, not the older LED-only sketch at arduino\asta_display_GPT\asta_display_GPT.ino. The final sketch requires the hd44780 library by Bill Perry and Arduino AVR Wire timeout support. The LCD source implements 0x27, TL1 and TL2 rows, ASTA, FTSC, FTSC TRANS, READY, PAUSED, STOPPED, FAULT, 3 s powered watchdog, and bounded buffered LCD update. Source availability does not itself prove the board currently has this version flashed. Record the actual successful upload, version, SHA-256 and IDE/AVR package:
+
+    certutil -hashfile "arduino\asta_display_final_LCD_GPT\asta_display_final_LCD_GPT.ino" SHA256
 
 Confirm all 12 LEDs are functional and mapped correctly. The earlier TL1-A yellow lamp repair must be physically checked. USB provides power; the Arduino cannot light LEDs on power loss. Check one LCD at I2C 0x27, TL1 top row, TL2 bottom row; LCD connects A4 SDA, A5 SCL, 5V, GND. Close the Arduino Serial Monitor before opening COM5 in Python. Confirm port, actual resistors and breadboard connections. Take one as-built photo.
 
