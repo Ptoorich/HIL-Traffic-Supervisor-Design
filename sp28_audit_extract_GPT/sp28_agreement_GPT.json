@@ -1,0 +1,334 @@
+{
+  "requirement": "SP-28",
+  "scope": "SUMO validated programme, HIL protocol and GPIO readback; not optical output",
+  "run_dir": "sp28_audit_extract_GPT",
+  "per_agent": {
+    "tl1": {
+      "assessed": 901,
+      "agreed": 0,
+      "failed": 901,
+      "failures": [
+        {
+          "sim_time": 0,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 1,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 2,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 3,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 4,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 5,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 6,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 7,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 8,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 9,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 10,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 11,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 12,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 13,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 14,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 15,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 16,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 17,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 18,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 19,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 20,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 21,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 22,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 23,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 24,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        }
+      ],
+      "agreement_pct": 0.0
+    },
+    "tl2": {
+      "assessed": 901,
+      "agreed": 0,
+      "failed": 901,
+      "failures": [
+        {
+          "sim_time": 0,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 1,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 2,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 3,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 4,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 5,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 6,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 7,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 8,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 9,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 10,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 11,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 12,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 13,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 14,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 15,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 16,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 17,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 18,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 19,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 20,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 21,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 22,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 23,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        },
+        {
+          "sim_time": 24,
+          "codes": [
+            "MISSING_OR_DUPLICATED_STATE_ACK"
+          ]
+        }
+      ],
+      "agreement_pct": 0.0
+    }
+  },
+  "total": {
+    "assessed": 1802,
+    "agreed": 0,
+    "failed": 1802,
+    "agreement_pct": 0.0
+  },
+  "threshold_pct": 99.9,
+  "threshold_met_for_assessed_steps": false,
+  "coverage_complete": true,
+  "unaccounted_execution_faults": [],
+  "caution": "A threshold pass is only for steps reconstructed from completed observation cycles. No physical LED illumination or general reliability is established. Unaccounted interrupted-cycle faults prevent a full-run acceptance claim."
+}

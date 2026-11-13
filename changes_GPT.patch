@@ -1,0 +1,369 @@
+--- a/supervisor/hil_serial_GPT.py
++++ b/supervisor/hil_serial_GPT.py
+@@ -135,11 +135,15 @@
+                     continue
+                 if fields[4:] != [str(expected_mask), kind]:
+                     raise DisplayError('ACK output mask/type differs from command')
+-                if self.clock() >= deadline:
++                ack_received_at = self.clock()
++                if ack_received_at >= deadline:
+                     raise DisplayError('ACK arrived after deadline')
+-                self.record('ack', sequence=self.sequence, kind=kind, mask=expected_mask,
+-                            sent_at=sent, rtt_ms=(self.clock() - sent) * 1000, attempts=attempt + 1)
+-                return
++                receipt = {'session': self.session, 'sequence': self.sequence,
++                           'kind': kind, 'mask': expected_mask, 'sent_at': sent,
++                           'ack_received_at': ack_received_at,
++                           'rtt_ms': (ack_received_at - sent) * 1000, 'attempts': attempt + 1}
++                self.record('ack', **receipt)
++                return receipt
+         raise DisplayError('Arduino ACK deadline exceeded (500 ms maximum)')
+ 
+     def _command(self, kind, values=(), mask=ALL_RED):
+@@ -147,7 +151,7 @@
+             raise DisplayError('Display session is not active')
+         try:
+             self.sequence = uint32(self.sequence + 1)
+-            self._exchange(encode_frame(1, kind, self.session, self.sequence, *values), kind, mask)
++            return self._exchange(encode_frame(1, kind, self.session, self.sequence, *values), kind, mask)
+         except BaseException as exc:
+             self.fault(exc)
+             raise
+@@ -159,7 +163,7 @@
+             any(type(m) is not int or m not in range(3) for m in modes)):
+             raise DisplayError('Expected two phase codes 0..5 and mode codes 0..2')
+         mask = PHASE_MASKS[phases[0]] | PHASE_MASKS[phases[1]] << 6
+-        self._command('S', (sim_ms, *phases, *modes), mask)
++        return self._command('S', (sim_ms, *phases, *modes), mask)
+ 
+     def pause(self):
+         self._command('P')
+--- a/supervisor/hil_display_GPT.py
++++ b/supervisor/hil_display_GPT.py
+@@ -9,22 +9,31 @@
+ 
+ 
+ class PhaseDisplay:
+-    def __init__(self, transport, *, speed=1.0, clock=time.monotonic, sleep=time.sleep):
++    def __init__(self, transport, *, speed=1.0, clock=None, sleep=time.sleep):
+         if speed not in (1.0, 3.0):
+             raise ValueError('HIL speed must be 1 or 3')
+         self.transport, self.speed = transport, speed
+-        self.clock, self.sleep = clock, sleep
++        # End-to-end timestamps must share the transport's monotonic clock.
++        self.clock, self.sleep = transport.clock if clock is None else clock, sleep
+         self.last_time = None
+         self.last_wall = None
+         self.step_lag_ms = 0.0
++        self.step_sleep_requested_ms = self.step_sleep_actual_ms = 0.0
++        self.last_sample = None
+ 
+     def prepare_step(self):
+         """Hold the current GUI/LED state together before advancing SUMO."""
+         self.step_lag_ms = 0.0
++        self.step_sleep_requested_ms = self.step_sleep_actual_ms = 0.0
+         if self.last_wall is not None:
+             target = self.last_wall + 1.0 / self.speed
+-            self.sleep(max(0.0, target - self.clock()))
+-            self.step_lag_ms = max(0.0, self.clock() - target) * 1000
++            before_sleep = self.clock()
++            wait = max(0.0, target - before_sleep)
++            self.sleep(wait)
++            after_sleep = self.clock()
++            self.step_sleep_requested_ms = wait * 1000
++            self.step_sleep_actual_ms = (after_sleep - before_sleep) * 1000
++            self.step_lag_ms = max(0.0, after_sleep - target) * 1000
+ 
+     def sample(self, env, traci_mod, modes, transitions=()):
+         if tuple(env.agent_ids) != ('tl1', 'tl2'):
+@@ -53,9 +62,14 @@
+         if float(traci_mod.simulation.getTime()) != sim:
+             raise DisplayError('SUMO time changed during readback')
+         # Send readback immediately after the step; pacing occurs in prepare_step().
+-        self.transport.state(round(sim * 1000), phases, mode_codes)
++        receipt = self.transport.state(round(sim * 1000), phases, mode_codes)
+         self.last_time, self.last_wall = sim, self.clock()
++        self.last_sample = {'sim_time': sim, 'sampled_at': sampled_at,
++                            'phases': phases, 'modes': mode_codes, 'ack': receipt}
+         self.transport.record('sample', sim_time=sim, phases=phases, modes=mode_codes,
+                               programs=programs, sampled_at=sampled_at,
++                              ack_sequence=receipt['sequence'],
++                              ack_received_at=receipt['ack_received_at'],
+                               lag_ms=self.step_lag_ms,
+                               observation_to_ack_ms=(self.clock() - sampled_at) * 1000)
++        return self.last_sample
+--- a/supervisor/integrated_runner_GPT.py
++++ b/supervisor/integrated_runner_GPT.py
+@@ -26,6 +26,7 @@
+ from .slow_monitor_GPT import (StepProbe, aggregate_window, behavior_summary,
+                                capture_boundary, evaluate_experimental_rule)
+ from .supervised_integrated_GPT import IntegratedSupervisedController
++from .hil_timing_GPT import BoundaryTiming, TimedPolicy
+ 
+ 
+ def sha256(path):
+@@ -126,22 +127,29 @@
+ 
+ class EvidenceProbe(StepProbe):
+     """Use the trial's scoped step probe and check the active SUMO programme."""
+-    def __init__(self, cfg, env, traci_mod, display=None, modes=None, transitions=()):
++    def __init__(self, cfg, env, traci_mod, display=None, modes=None, transitions=(), timing=None):
+         super().__init__(cfg, env.step_length, traci_mod)
+         self.env, self.active_programs = env, None
+         self.display, self.modes, self.transitions = display, modes, transitions
++        self.timing = timing
+ 
+     def step(self, *args, **kwargs):
+         if self.display is not None and self.steps == 0:
+             # env.step has applied actions; observe any phase-zero reset before advancing.
+             self.display.sample(self.env, self.traci, self.modes, self.transitions)
++            if self.timing is not None:
++                self.timing.boundary_ack(self.display.last_sample)
+         if self.display is not None:
+             self.display.prepare_step()
++            if self.timing is not None and self.steps == 0:
++                self.timing.before_first_step(self.display)
+         result = super().step(*args, **kwargs)
+         if self.steps == 1:
+             self.active_programs = read_active_programs(self.env, self.traci)
+         if self.display is not None:
+             self.display.sample(self.env, self.traci, self.modes, self.transitions)
++            if self.timing is not None and self.steps == 1:
++                self.timing.first_step_ack(self.display.last_sample)
+         return result
+ 
+ 
+@@ -163,7 +171,11 @@
+                'handbacks_unverified_partial': {a: 0 for a in agents},
+                'final_modes': None}
+     decisions = out / 'decisions_GPT.jsonl'
+-    with controller_factory(policy, cfg, matrix, log_path=decisions,
++    timing_context = (BoundaryTiming(out, clock=display.clock, budget_ms=cfg.timing.total_budget_s * 1000)
++                      if display is not None else nullcontext(None))
++    with timing_context as timing, \
++         controller_factory(TimedPolicy(policy, timing) if timing is not None else policy,
++                            cfg, matrix, log_path=decisions,
+                             run_id=f'integrated_{policy.kind}') as ctrl:
+         obs = env.reset(seed=seed, route_file=str(route))
+         ctrl.reset_episode(episode_id=seed)
+@@ -176,6 +188,8 @@
+             cycle = 0
+             while True:
+                 start = env.current_step
++                if timing is not None:
++                    timing.begin(cycle, start)
+                 before = {a: float(env.phase_splits[a]) for a in agents}
+                 programs_before = read_active_programs(env, traci_mod)
+                 boundary_start = capture_boundary(cfg, traci_mod)
+@@ -210,6 +224,8 @@
+ 
+                 actions = ctrl.act(env, obs, start,
+                                    release_candidates=release_candidates if handback_enabled else None)
++                if timing is not None:
++                    timing.mark('decision_finished_at')
+                 entry = ctrl.last_entry
+                 if not isinstance(entry, dict) or set(entry.get('decisions', {})) != set(agents):
+                     raise RuntimeError('Incomplete controller decision; no simulation step performed')
+@@ -248,8 +264,12 @@
+                                       recovery=state.describe())
+                 modes_after_act = dict(ctrl.modes)
+                 with EvidenceProbe(cfg, env, traci_mod, display=display,
+-                                   modes=modes_after_act, transitions=transitions) as probe:
++                                   modes=modes_after_act, transitions=transitions, timing=timing) as probe:
++                    if timing is not None:
++                        timing.mark('env_step_called_at')
+                     obs, _, terminated = env.step(actions)
++                if timing is not None:
++                    timing.finish_cycle()
+                 complete = probe.steps == env.step_length
+                 end = start + probe.steps
+                 programs = probe.active_programs
+@@ -331,6 +351,11 @@
+                           f'pending={(probe.end_boundary or {}).get("pending_insertion")}')
+                 if not can_continue:
+                     break
++    if timing is not None:
++        measured = timing.summary()
++        summary['hil_timing'] = {k: measured[k] for k in (
++            'measurement_status', 'boundaries_completed', 'incomplete_or_invalid_boundaries',
++            'budget_ms', 'budget_status', 'budget_exceedances')}
+     return summary
+ 
+ 
+--- /dev/null
++++ b/supervisor/hil_timing_GPT.py
+@@ -0,0 +1,174 @@
++"""Host timing evidence only: never selects actions, sleeps, or changes a mode.
++
++The two endpoints are the validated ACK after boundary action application and
++the validated ACK after the first SUMO step. All timestamps use the same clock
++as SerialDisplay. These measurements are not optical latency measurements.
++"""
++from __future__ import annotations
++
++import json
++import math
++from pathlib import Path
++import statistics
++
++SCHEMA_VERSION = 1
++BUDGET_METRICS = ('post_policy_to_boundary_ack_ms', 'policy_to_boundary_ack_ms',
++                  'policy_to_first_step_ack_ms', 'boundary_to_first_step_ack_ms')
++
++
++class TimedPolicy:
++    """Delegate the existing policy unchanged, including its exception path."""
++    def __init__(self, policy, timing):
++        self.policy, self.timing = policy, timing
++
++    def __getattr__(self, name):
++        return getattr(self.policy, name)
++
++    def act(self, *args, **kwargs):
++        self.timing.mark('policy_started_at')
++        status = 'raised'
++        try:
++            value = self.policy.act(*args, **kwargs)
++            status = 'returned'
++            return value
++        finally:
++            self.timing.mark('policy_finished_at')
++            self.timing.pending['policy_status'] = status
++
++
++def _stats(values):
++    values = sorted(values)
++    def percentile(p):
++        h = (len(values) - 1) * p
++        lo, hi = math.floor(h), math.ceil(h)
++        return values[lo] + (values[hi] - values[lo]) * (h - lo)
++    return {'n': len(values), 'mean': statistics.fmean(values),
++            'median': statistics.median(values), 'p95': percentile(.95),
++            'p99': percentile(.99), 'min': values[0], 'max': values[-1]}
++
++
++class BoundaryTiming:
++    def __init__(self, out, *, clock, budget_ms):
++        if not math.isfinite(budget_ms) or budget_ms <= 0:
++            raise ValueError('Timing budget must be finite and positive')
++        self.out, self.clock, self.budget_ms = Path(out), clock, budget_ms
++        self.pending, self.rows, self.log = None, [], None
++        self.interrupted = None
++
++    def __enter__(self):
++        # Refuse to mix fresh telemetry with an old run, including its summary.
++        if (self.out / 'timing_summary_GPT.json').exists():
++            raise FileExistsError(self.out / 'timing_summary_GPT.json')
++        self.log = (self.out / 'timing_GPT.jsonl').open('x', encoding='utf-8')
++        return self
++
++    def begin(self, cycle, sim_time):
++        self.finish_cycle()
++        self.pending = {'schema_version': SCHEMA_VERSION, 'cycle': cycle,
++                        'sim_time': sim_time, 'boundary_started_at': self.clock(),
++                        'budget_ms': self.budget_ms}
++
++    def mark(self, name):
++        self.pending[name] = self.clock()
++
++    def boundary_ack(self, sample):
++        self.pending['boundary_output'] = sample
++
++    def before_first_step(self, display):
++        self.pending['pacing_requested_ms'] = display.step_sleep_requested_ms
++        self.pending['pacing_actual_ms'] = display.step_sleep_actual_ms
++        self.mark('first_step_started_at')
++
++    def first_step_ack(self, sample):
++        self.pending['first_step_output'] = sample
++        row = self.pending
++        try:
++            first, second = row['boundary_output'], row['first_step_output']
++            a, b = first['ack'], second['ack']
++            if (a['kind'] != 'S' or b['kind'] != 'S' or a['session'] != b['session']
++                    or type(a['sequence']) is not int or type(b['sequence']) is not int
++                    or b['sequence'] != a['sequence'] + 1):
++                raise ValueError('ACKs do not identify consecutive STATE commands in one session')
++            if first['sim_time'] != row['sim_time'] or second['sim_time'] != row['sim_time'] + 1:
++                raise ValueError('ACKs are not for this boundary and its first simulated second')
++            timeline = [row['boundary_started_at'], row['policy_started_at'],
++                        row['policy_finished_at'], row['decision_finished_at'],
++                        row['env_step_called_at'], first['sampled_at'], a['sent_at'],
++                        a['ack_received_at'], row['first_step_started_at'],
++                        second['sampled_at'], b['sent_at'], b['ack_received_at']]
++            if (not all(math.isfinite(t) for t in timeline)
++                    or any(v < u for u, v in zip(timeline, timeline[1:]))):
++                raise ValueError('Missing, nonfinite or out-of-order timing markers')
++            wait = row['pacing_actual_ms']
++            requested = row['pacing_requested_ms']
++            if not all(math.isfinite(t) and t >= 0 for t in (wait, requested)):
++                raise ValueError('Invalid pacing measurement')
++            if wait > (row['first_step_started_at'] - a['ack_received_at']) * 1000 + 1e-6:
++                raise ValueError('Pacing interval exceeds the interval containing it')
++            boundary, policy, proposal = (row['boundary_started_at'], row['policy_started_at'],
++                                          row['policy_finished_at'])
++            first_ack, next_ack = a['ack_received_at'], b['ack_received_at']
++            m = {'policy_call_ms': (proposal - policy) * 1000,
++                 'post_policy_to_boundary_ack_ms': (first_ack - proposal) * 1000,
++                 'policy_to_boundary_ack_ms': (first_ack - policy) * 1000,
++                 'boundary_to_boundary_ack_ms': (first_ack - boundary) * 1000,
++                 'post_policy_to_first_step_ack_ms': (next_ack - proposal) * 1000,
++                 'policy_to_first_step_ack_ms': (next_ack - policy) * 1000,
++                 'boundary_to_first_step_ack_ms': (next_ack - boundary) * 1000,
++                 'policy_to_first_step_ack_excluding_pacing_ms': (next_ack - policy) * 1000 - wait,
++                 'pacing_requested_ms': requested, 'pacing_actual_ms': wait,
++                 'decision_to_boundary_ack_ms': (first_ack - row['decision_finished_at']) * 1000,
++                 'first_step_and_readback_to_ack_ms': (next_ack - row['first_step_started_at']) * 1000}
++            row.update(status='complete', metrics_ms=m,
++                       budget_exceeded={k: m[k] > self.budget_ms for k in BUDGET_METRICS})
++        except (KeyError, TypeError, ValueError) as exc:
++            row.update(status='invalid', reason=f'{type(exc).__name__}: {exc}')
++        self._write_pending()
++
++    def _write_pending(self):
++        # Unexpected logging errors propagate like the existing evidence logs.
++        self.log.write(json.dumps(self.pending, allow_nan=False) + '\n')
++        self.log.flush()
++        self.rows.append(self.pending)
++        self.pending = None
++
++    def finish_cycle(self, reason='No boundary/first-step ACK pair was completed'):
++        if self.pending is not None:
++            self.pending.update(status='incomplete', reason=reason)
++            self._write_pending()
++
++    def summary(self):
++        complete = [r for r in self.rows if r['status'] == 'complete']
++        incomplete = len(self.rows) - len(complete)
++        status = 'INCOMPLETE' if incomplete or self.interrupted else ('COMPLETE' if complete else 'NO_DATA')
++        exceedances = {k: sum(r['budget_exceeded'][k] for r in complete) for k in BUDGET_METRICS}
++        return {'schema_version': SCHEMA_VERSION, 'measurement_status': status,
++                'boundaries_started': len(self.rows), 'boundaries_completed': len(complete),
++                'incomplete_or_invalid_boundaries': incomplete, 'budget_ms': self.budget_ms,
++                'run_interrupted_by': self.interrupted,
++                'budget_status': ('INCOMPLETE' if status != 'COMPLETE' else
++                                  'EXCEEDED' if any(exceedances.values()) else 'WITHIN_OBSERVED_BUDGET'),
++                'budget_exceedances': exceedances,
++                'metrics_ms': {k: _stats([r['metrics_ms'][k] for r in complete])
++                               for k in (complete[0]['metrics_ms'] if complete else ())},
++                'policy_calls_raised': sum(r.get('policy_status') == 'raised' for r in self.rows),
++                'clock': 'host monotonic, shared with serial transport',
++                'scope': 'cycle boundary/policy call through validated GPIO ACK; not optical latency',
++                'policy_scope': 'StrictPolicy.act includes observation validation and model predictions',
++                'pacing_scope': 'first-step totals include actual sleep; excluded-pacing metric is derived',
++                'budget_scope': 'observational comparison only; never changes control or watchdogs',
++                'percentiles': 'linear interpolation at (n-1)*p; all complete records included'}
++
++    def __exit__(self, typ, value, tb):
++        self.interrupted = typ.__name__ if typ is not None else None
++        try:
++            reason = f'Run interrupted by {typ.__name__}' if typ is not None else 'No boundary/first-step ACK pair was completed'
++            self.finish_cycle(reason)
++            with (self.out / 'timing_summary_GPT.json').open('x', encoding='utf-8') as target:
++                json.dump(self.summary(), target, indent=2, allow_nan=False)
++        except Exception:
++            if typ is None:
++                raise
++            # Preserve the original control/serial error if writing diagnostics also fails.
++        finally:
++            self.log.close()

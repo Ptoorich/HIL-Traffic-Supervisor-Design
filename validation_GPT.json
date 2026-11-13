@@ -1,0 +1,24 @@
+{
+  "regression": {
+    "full_suite_passed": 129,
+    "full_suite_subtests_passed": 6,
+    "initially_skipped": 1,
+    "skipped_test_passed_separately": "supervisor/tests/test_p5_p6_GPT.py::NetworkTests::test_real_network",
+    "distinct_tests_passed_total": 130
+  },
+  "live_sumo": {
+    "fault_runner_checks_passed": 12,
+    "complete_timing_boundaries": 10,
+    "policy": "deterministic no-change test policy",
+    "serial_and_clock": "virtual; not physical latency evidence"
+  },
+  "installer_checks": [
+    "original CRLF source applies to exact tested hashes",
+    "original bytes backed up",
+    "repeat install is idempotent",
+    "unrecognised local edits rejected before any code write",
+    "injected replacement failure restores written originals"
+  ],
+  "physical_update_run": "not performed; user must run COM5 timing collection",
+  "lcd_work": "paused"
+}

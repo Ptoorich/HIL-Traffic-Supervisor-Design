@@ -1,0 +1,148 @@
+--- a/arduino/asta_display_GPT/asta_display_GPT.ino
++++ b/arduino/asta_display_GPT/asta_display_GPT.ino
+@@ -6,6 +6,9 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <Wire.h>
++#include <hd44780.h>
++#include <hd44780ioClass/hd44780_I2Cexp.h>
+ 
+ static const uint16_t ALL_RED = (1U << 2) | (1U << 5) | (1U << 8) | (1U << 11);
+ static const uint32_t WATCHDOG_MS = 3000, FRAME_MS = 200, FLASH_MS = 500;
+@@ -20,6 +23,82 @@
+ static uint16_t lastMask = ALL_RED;
+ static char lastKind = 'H';
+ 
++// One LCD at 0x27: TL1 on row 0, TL2 on row 1. Install hd44780 by Bill Perry.
++// LCD writes are outside the GPIO/ACK path. Each loop does at most one LCD API
++// operation, and yields to incoming serial data and the freshness watchdog.
++static hd44780_I2Cexp lcd(0x27);
++enum LcdStage : uint8_t { LCD_IDLE, LCD_HIDE, LCD_CURSOR, LCD_CHAR, LCD_SHOW };
++static LcdStage lcdStage = LCD_IDLE;
++static bool lcdOnline = false;
++static uint8_t lcdRow = 0, lcdCol = 0;
++static char lcdText[2][17] = {{0}, {0}};
++static const uint32_t LCD_TIMEOUT_US = 3000UL, LCD_WATCHDOG_GUARD_MS = 50;
++
++static void lcdRows(const char *tl1, const char *tl2) {
++  const char *labels[2] = {tl1, tl2};
++  bool changed = false;
++  for (uint8_t row = 0; row < 2; ++row) {
++    char line[17];
++    snprintf(line, sizeof(line), "TL%u: %-11.11s", (unsigned)(row + 1), labels[row]);
++    if (strcmp(line, lcdText[row])) {
++      strcpy(lcdText[row], line); changed = true;
++    }
++  }
++  if (changed) {
++    // Hide during repaint so two rows or partial words cannot show mixed states.
++    // A newer accepted command restarts the repaint using its latest labels.
++    lcdStage = LCD_HIDE; lcdRow = 0; lcdCol = 0;
++  }
++}
++
++static void lcdStatus(const char *label) { lcdRows(label, label); }
++
++static const char *lcdMode(uint8_t mode) {
++  // Mode 2 is still owned by FTSC; ASTA appears only on a received mode 0.
++  return mode == 0 ? "ASTA" : mode == 1 ? "FTSC" : "FTSC TRANS";
++}
++
++static void initLcd() {
++  Wire.begin(); Wire.setClock(100000UL);
++  // AVR Wire has these methods even when WIRE_HAS_TIMEOUT is not defined.
++  Wire.setWireTimeout(LCD_TIMEOUT_US, true);
++  const int status = lcd.begin(16, 2); // Auto-detect the backpack pin mapping.
++  lcdOnline = status == 0 && !Wire.getWireTimeoutFlag();
++  lcdStatus("WAITING");
++  // Failure leaves the independent GPIO/serial controller available. No
++  // unframed debug text is allowed on the HIL protocol's serial connection.
++}
++
++static void serviceLcd() {
++  if (!lcdOnline || lcdStage == LCD_IDLE || used || Serial.available()) return;
++  if (watching && (uint32_t)(millis() - lastAccepted) >=
++      WATCHDOG_MS - LCD_WATCHDOG_GUARD_MS) return;
++  Wire.clearWireTimeoutFlag();
++  int status = 0;
++  switch (lcdStage) {
++    case LCD_HIDE:
++      status = lcd.noDisplay(); lcdStage = LCD_CURSOR; break;
++    case LCD_CURSOR:
++      status = lcd.setCursor(0, lcdRow); lcdStage = LCD_CHAR; break;
++    case LCD_CHAR:
++      status = lcd.write((uint8_t)lcdText[lcdRow][lcdCol]) == 1 ? 0 : -1;
++      if (++lcdCol == 16) {
++        lcdCol = 0;
++        if (++lcdRow == 2) lcdStage = LCD_SHOW;
++        else lcdStage = LCD_CURSOR;
++      }
++      break;
++    case LCD_SHOW:
++      status = lcd.display(); lcdStage = LCD_IDLE; break;
++    case LCD_IDLE: return;
++  }
++  if (status != 0 || Wire.getWireTimeoutFlag()) {
++    // Latch off until reset: no retries that could repeatedly stall the loop.
++    // An electrically failed LCD can retain old text; GPIO ACK is not LCD proof.
++    lcdOnline = false; lcdStage = LCD_IDLE;
++  }
++}
++
+ static uint16_t crc16(const char *s) {
+   uint16_t crc = 0xFFFF;
+   while (*s) {
+@@ -63,6 +142,7 @@
+   faulted = true; watching = false; flashing = true; redOn = true;
+   flashAt = millis();
+   applyMask(ALL_RED);
++  lcdStatus("FAULT");
+   errorReply(code, 'E');
+   // Latched until board reset. HELLO cannot silently rearm a fault.
+ }
+@@ -139,6 +219,7 @@
+     sessionId = sid; sequence = 0; lastKind = 'H'; lastMask = ALL_RED;
+     acceptedHello = true; watching = true; flashing = false;
+     lastAccepted = millis(); applyMask(ALL_RED);
++    lcdStatus("READY");
+     strcpy(previous, input); acknowledge(); return;
+   }
+   if (!acceptedHello || sid != sessionId) return;
+@@ -148,8 +229,9 @@
+   if ((closed && kind != 'F') || seq <= sequence) return;
+   uint16_t mask = ALL_RED;
+   uint32_t sim = lastSim;
++  uint32_t m1 = 0, m2 = 0;
+   if (kind == 'S') {
+-    uint32_t p1, p2, m1, m2;
++    uint32_t p1, p2;
+     if (count != 9 || !number(fields[4], sim) || !number(fields[5], p1) ||
+         !number(fields[6], p2) || !number(fields[7], m1) || !number(fields[8], m2) ||
+         p1 > 5 || p2 > 5 || m1 > 2 || m2 > 2 || (haveSim && sim < lastSim)) {
+@@ -167,6 +249,8 @@
+   lastAccepted = millis(); watching = kind == 'S';
+   if (kind == 'S') { lastSim = sim; haveSim = true; }
+   if (kind == 'X') closed = true;
++  if (kind == 'S') lcdRows(lcdMode((uint8_t)m1), lcdMode((uint8_t)m2));
++  else lcdStatus(kind == 'P' ? "PAUSED" : "STOPPED");
+   strcpy(previous, input); acknowledge();
+ }
+ 
+@@ -176,6 +260,7 @@
+   }
+   applyMask(ALL_RED); flashAt = millis();
+   Serial.begin(115200);
++  initLcd(); // Runs before READY and before a host session starts.
+   const uint32_t signature = 0x41535441UL;
+   uint32_t storedSignature, storedBoot;
+   EEPROM.get(0, storedSignature); EEPROM.get(4, storedBoot);
+@@ -210,4 +295,7 @@
+       }
+     }
+   }
+-}
++  serviceTimers();
++  serviceLcd();
++  serviceTimers();
++}

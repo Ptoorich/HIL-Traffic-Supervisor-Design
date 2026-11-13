@@ -1,0 +1,27 @@
+{
+  "seed": 42,
+  "slow_monitor_enabled": false,
+  "auto_handback_enabled": true,
+  "cycles_observed": 10,
+  "complete_cycles": 10,
+  "slow_contingencies": {
+    "tl1": 0,
+    "tl2": 0
+  },
+  "fast_contingencies": {
+    "tl1": 1,
+    "tl2": 0
+  },
+  "handbacks_completed": {
+    "tl1": 1,
+    "tl2": 0
+  },
+  "handbacks_unverified_partial": {
+    "tl1": 0,
+    "tl2": 0
+  },
+  "final_modes": {
+    "tl1": "ASTA",
+    "tl2": "ASTA"
+  }
+}

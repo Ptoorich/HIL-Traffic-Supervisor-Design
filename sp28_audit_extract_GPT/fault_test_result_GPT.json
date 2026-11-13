@@ -1,0 +1,55 @@
+{
+  "status": "PASS",
+  "checks": {
+    "one_injected_lane_rejected": true,
+    "ten_complete_cycles": true,
+    "one_tl1_fallback": true,
+    "no_slow_interventions": true,
+    "one_verified_handback": true,
+    "both_finish_asta": true,
+    "display_mode_sequence": true,
+    "every_second_and_boundary": true,
+    "all_six_phases": true,
+    "tl1_fixed_program": true,
+    "qualified_transition": true,
+    "normal_stop_ack": true
+  },
+  "injection": {
+    "agent": "tl1",
+    "sim_time": 90,
+    "missing_lane": "596638461#0_0",
+    "snapshot_count": 1
+  },
+  "sample_count": 910,
+  "mode_changes": [
+    {
+      "sim_time": 0.0,
+      "modes": [
+        0,
+        0
+      ]
+    },
+    {
+      "sim_time": 90.0,
+      "modes": [
+        1,
+        0
+      ]
+    },
+    {
+      "sim_time": 540.0,
+      "modes": [
+        2,
+        0
+      ]
+    },
+    {
+      "sim_time": 630.0,
+      "modes": [
+        0,
+        0
+      ]
+    }
+  ],
+  "scope": "SUMO readback and GPIO ACK; visually check the actual LEDs"
+}

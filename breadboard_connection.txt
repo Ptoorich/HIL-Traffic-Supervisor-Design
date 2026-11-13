@@ -1,0 +1,31 @@
+Step 2: TL1 Phase A (Rows 1 to 8)
+
+Red LED (Pin 4): Insert the longer leg (Anode) into row 1e and the shorter leg (Cathode) into row 2e. Plug one end of a resistor into row 2a and the other end into the negative (-) ground rail. Run a wire from row 1a to Arduino Pin 4.
+
+Yellow LED (Pin 3): Insert the longer leg into 4e and the shorter leg into 5e. Connect a resistor from 5a to the ground rail. Run a wire from 4a to Arduino Pin 3.
+
+Green LED (Pin 2): Insert the longer leg into 7e and the shorter leg into 8e. Connect a resistor from 8a to the ground rail. Run a wire from 7a to Arduino Pin 2.
+
+Step 3: TL1 Phase B (Rows 15 to 22)
+
+Red LED (Pin 7): Longer leg in 15e, shorter leg in 16e. Resistor from 16a to ground. Wire from 15a to Arduino Pin 7.
+
+Yellow LED (Pin 6): Longer leg in 18e, shorter leg in 19e. Resistor from 19a to ground. Wire from 18a to Arduino Pin 6.
+
+Green LED (Pin 5): Longer leg in 21e, shorter leg in 22e. Resistor from 22a to ground. Wire from 21a to Arduino Pin 5.
+
+Step 4: TL2 Phase A (Rows 30 to 37)
+
+Red LED (Pin 10): Longer leg in 30e, shorter leg in 31e. Resistor from 31a to ground. Wire from 30a to Arduino Pin 10.
+
+Yellow LED (Pin 9): Longer leg in 33e, shorter leg in 34e. Resistor from 34a to ground. Wire from 33a to Arduino Pin 9.
+
+Green LED (Pin 8): Longer leg in 36e, shorter leg in 37e. Resistor from 37a to ground. Wire from 36a to Arduino Pin 8.
+
+Step 5: TL2 Phase B (Rows 45 to 52)
+
+Red LED (Pin 13): Longer leg in 45e, shorter leg in 46e. Resistor from 46a to ground. Wire from 45a to Arduino Pin 13.
+
+Yellow LED (Pin 12): Longer leg in 48e, shorter leg in 49e. Resistor from 49a to ground. Wire from 48a to Arduino Pin 12.
+
+Green LED (Pin 11): Longer leg in 51e, shorter leg in 52e. Resistor from 52a to ground. Wire from 51a to Arduino Pin 11.

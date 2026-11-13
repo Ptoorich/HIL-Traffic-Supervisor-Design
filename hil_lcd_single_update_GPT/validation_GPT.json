@@ -1,0 +1,59 @@
+{
+  "status": "NATIVE_CHECKS_PASS_HARDWARE_PENDING",
+  "date": "2026-11-06",
+  "baseline_repository": "Ptoorich/HIL-Traffic-Supervisor-Design",
+  "baseline_firmware_git_blob": "9ef15a507f83c5958aea71b9ce426427aa9e3030",
+  "native_scenarios_passed": [
+    "startup",
+    "modes",
+    "phases",
+    "duplicate",
+    "invalid",
+    "watchdog",
+    "wrap",
+    "host_fault",
+    "gpio_fault",
+    "lcd_absent",
+    "lcd_init_timeout",
+    "lcd_error",
+    "lcd_timeout",
+    "supersede",
+    "serial_priority",
+    "watchdog_guard"
+  ],
+  "native_scenario_count": 16,
+  "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "checks": [
+    "real .ino compiled with mock Arduino, EEPROM, Wire and hd44780 APIs",
+    "-Wall -Wextra -Werror",
+    "AddressSanitizer (leak detection disabled for container)",
+    "UndefinedBehaviorSanitizer",
+    "Python syntax compilation",
+    "bench --help using existing real transport module"
+  ],
+  "avr_build_performed": false,
+  "physical_lcd_integration_test_performed": false,
+  "known_hardware_evidence": [
+    "Both LCD adapters individually scanned at 0x27",
+    "User confirmed both rows readable in standalone single-LCD test"
+  ],
+  "pending": [
+    "Arduino Uno build/upload",
+    "Physical short mode bench",
+    "Physical watchdog check with LCD",
+    "Optional new SUMO/LCD handback evidence"
+  ],
+  "sha256": {
+    "README_LCD_SINGLE_GPT.md": "d3d92ccede0f1ce308758d73da59ed7002f6b0392183fac11a00908a8691363c",
+    "arduino/asta_display_GPT/asta_display_GPT.ino": "5d9a7e62546ba1806970111131f75f4bafa068369a6d36bfc6856fc8ebb56990",
+    "bench_lcd_modes_GPT.py": "c384dd8d37f8025133f007403630964ca8d9db3d285cba04d3729c675e46437b",
+    "lcd_single_update_GPT.patch": "0c563f9fc59669be78bd8385a30dbed337b30642de9399da5f5284515479414c",
+    "tests/native/Arduino.h": "0b6711a35828e98061a5da1946ace911b74e724f5bb661ea42ab8d2ebb15c2e0",
+    "tests/native/EEPROM.h": "e70c742941851834ae1ad8706f2c86e2160b679cf0dc16ae29eed64ff4a36651",
+    "tests/native/Wire.h": "6dd9ab8d91347de58f18e1bed35835e1df7bcc2b1f6a516c6991649649beca4f",
+    "tests/native/hd44780.h": "de9a0888cab50001e1deb0af55153e85e645b0a1ec284c428bb55e55dbd3f891",
+    "tests/native/hd44780ioClass/hd44780_I2Cexp.h": "9ee3dea49dd525021435f730ca3fcb3082554d4b2e7a55c92ece1911c567160b",
+    "tests/native/test_firmware.cpp": "22a921f45cef5e934bd7687eb05129c87b0966848524fef5f1181b0e6fbf6817",
+    "tests/run_native_GPT.py": "200e858993fdf743acca135d3c7b80fc61c98582853b5564638220fc4d3d285e"
+  }
+}

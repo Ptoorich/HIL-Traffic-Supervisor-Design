@@ -1,0 +1,15 @@
+{
+  "test": "one_tl1_missing_lane",
+  "seed": 42,
+  "cycles": 10,
+  "fault_time": 90,
+  "slow_monitor_enabled": false,
+  "auto_handback_enabled": true,
+  "sumo_gui": true,
+  "port": "COM5",
+  "speed": 1.0,
+  "model_sha256": "a45080e45965a7fc99146c473631407cf6d3d1c5ee624bdc623679350ffcfe20",
+  "route_sha256": "86fe8dc18d40a084d0873638e951032d34a4fa525c24aab460ef4444d192eb15",
+  "runner_sha256": "dc1d547fe4241600ad5f1ba77a7ba3148755a8d9b37f1459b1818eceb89dd84c",
+  "fault_scope": "one supervisor snapshot; SUMO and RL inputs unchanged"
+}

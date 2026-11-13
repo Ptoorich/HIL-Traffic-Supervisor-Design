@@ -1,0 +1,26 @@
+{
+  "input_archive_sha256": "d34c68de3fe0f747b97872da7e56ce34932431071fc2a7e425d2c117528f4861",
+  "sha256_scope": "UTF-8 source after CRLF-to-LF normalization",
+  "production_files": {
+    "supervisor/hil_serial_GPT.py": {
+      "before": "32003ee838ecfe1b3a3a19a23a9124ecec5b202818a3ecddb38fe2044e8b43cf",
+      "after": "14da763bea1677fb8311af3549f14c76abcbd3c43963b289c06f371648cde0a5"
+    },
+    "supervisor/hil_display_GPT.py": {
+      "before": "3cace9543d4c9200c3857b7f44b980b56f5efeb8cb5a9108065540d37697e294",
+      "after": "1414109e8849440066e8ebee5a7025d1b1950206b9b4db87623ed980dc4132f6"
+    },
+    "supervisor/integrated_runner_GPT.py": {
+      "before": "b1f90f32ad9d9c7af70cf533fd81f57709f91511b7ff99606988891f11e5d666",
+      "after": "17da12963ff696c6b058a65f88932917137494b5d3e25167a7ab239413f00928"
+    },
+    "supervisor/hil_timing_GPT.py": {
+      "before": null,
+      "after": "949d6ee029e8322011a864e0683b741ff08eba6dadaa2d796558a0ce8ea5cb3e"
+    }
+  },
+  "tests": {
+    "supervisor/tests/test_hil_timing_GPT.py": "b19f8a27911cdeae21da4ebdd3ac5b8e48a58da067288d2966d44be2db465eac",
+    "supervisor/tests/test_hil_timing_sumo_GPT.py": "c99e9f198574552698d3e1d4e1510e5c4994464dfab5e6d2bd0b05789c736ca1"
+  }
+}
