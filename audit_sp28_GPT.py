@@ -82,17 +82,14 @@ def audit_run(folder):
         junctions = observation.get("junctions", {})
         if start is None or end is None or end < start:
             raise ValueError("Invalid observation cycle boundary")
-        for t in range(start, end):
+        # The readback after each executed SUMO step has t = start+1..end.
+        # t=start is a phase-zero boundary sample, not an executed step.
+        for t in range(start + 1, end + 1):
             if t in expected:
                 raise ValueError(f"Overlapping observation coverage at step {t}")
             expected[t] = {a: x.get("split_after") for a, x in junctions.items()}
     if not expected:
         raise ValueError("No recorded simulation steps found.")
-    # The final boundary is a real display sample and must be accounted for,
-    # though it may represent the next phase reset if a following cycle exists.
-    max_t = max(expected) + 1
-    final = observations[-1]["junctions"]
-    expected[max_t] = {a: x.get("split_after") for a, x in final.items()}
 
     faults = [x for x in events if x.get("event") == "execution_readback_FAIL"]
     # An interrupted cycle may not produce an observations row. In such cases
@@ -106,10 +103,10 @@ def audit_run(folder):
                "legacy_unmatched_or_ambiguous_samples": 0}
     for sim_t, commanded in sorted(expected.items()):
         records = samples.get(sim_t, [])
-        # A cycle boundary is recorded twice: end-of-previous-cycle and
-        # phase-zero reset at the start of the following cycle. The later
-        # sample corresponds to the newly approved command.
-        row = records[-1] if 1 <= len(records) <= 2 else None
+        # At a cycle boundary the first sample is post-step readback for the
+        # previous approved programme; the second (if any) is phase-zero
+        # readback after the NEXT cycle's decision. Assess the executed step.
+        row = records[0] if 1 <= len(records) <= 2 else None
         if row is not None:
             if type(row.get("ack_sequence")) is int:
                 linkage["explicit_sequence_samples"] += 1
@@ -192,6 +189,8 @@ def audit_run(folder):
         "run_dir": str(folder),
         "per_agent": outcomes,
         "total": total,
+        "simulation_steps_assessed": len(expected),
+        "initial_boundary_sample_excluded": True,
         "threshold_pct": 99.9,
         "ack_linkage": linkage,
         "ack_linkage_note": ("Explicit sequence pairing is stronger than legacy "
