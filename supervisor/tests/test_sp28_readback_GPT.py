@@ -1,9 +1,8 @@
-"""SP-28 fault-injection CHARACTERISATION tests for the existing supervisor.
+"""SP-28 readback fault-injection and explicit FAIL-event regression tests.
 
-These tests deliberately assert current detection and interruption behaviour.
-They DO NOT claim SP-28 acceptance: the required junction-local FAIL/FTSC
-response, <=1-step response, >=99.9% agreement across assessed steps, and
-optical evidence must be verified separately.
+The detection within one simulation step, recorded FAIL and subsequent safe
+interruption are under test. A detected fault does NOT imply verified FTSC
+handover; aggregate agreement and physical optics require separate evidence.
 
 No SUMO installation, physical Arduino, or controller model is required.
 Run from repository root:
@@ -165,10 +164,10 @@ def test_sp28_missing_arduino_ack_faults_display_session(tmp_path):
     assert decode_frame(board.writes[-1])[1] == "F"
 
 
-def test_sp28_first_step_programme_mismatch_aborts_not_junction_fail(
+def test_sp28_first_step_programme_mismatch_records_fail_then_aborts(
     tmp_path, monkeypatch,
 ):
-    """Characterise the compliance gap: an exception, not a resolver FAIL."""
+    """The failure is an SP-28 execution FAIL, not a pre-command gate VETO."""
     cfg, fake, env = _environment()
     _inject_duration_error(fake, env, monkeypatch, from_step=1)
     stub_plan = types.ModuleType("tod_plan")
@@ -216,4 +215,20 @@ def test_sp28_first_step_programme_mismatch_aborts_not_junction_fail(
     first = decisions[0]["decisions"]["tl1"]
     assert first["gate"]["overall"] in ("APPROVE", "APPROVE_WARN")
     assert first["mode_after"] == "ASTA"
-    # No SP-28 FAIL/contingency transition was issued on the offending step.
+    # The execution fault occurs AFTER the supervisor's cycle-boundary
+    # approval. A distinct SP-28 FAIL event must therefore be recorded.
+    event_file = tmp_path / "events_GPT.jsonl"
+    events = [json.loads(row) for row in event_file.read_text().splitlines()]
+    failures = [x for x in events if x.get("event") == "execution_readback_FAIL"]
+    assert len(failures) == 1
+    failure = failures[0]
+    assert failure["requirement"] == "SP-28"
+    assert failure["status"] == "FAIL"
+    assert failure["sim_time"] == 1
+    assert failure["step_in_cycle"] == 1
+    assert failure["cycle"] == 0
+    assert failure["agent"] == "tl1"
+    assert failure["source"] == "sumo_program_readback"
+    assert failure["response"] == "ABORT_UNTRUSTED_EXECUTION"
+    assert failure["ftsc_commanded"] is False
+    # No unsafe FTSC handover is asserted just because a readback failed.
