@@ -22,6 +22,7 @@ import tod_plan as tp
 from sumo_env_marl_ps import SumoMARLEnvPS
 
 from .observation_adapter_GPT import StrictPolicy, read_active_programs
+from .sp28_monitor_GPT import SP28ReadbackFailure, verify_program, verify_display
 from .recovery_GPT import Recovery, valid_pending
 from .slow_monitor_GPT import (StepProbe, aggregate_window, behavior_summary,
                                capture_boundary, evaluate_experimental_rule)
@@ -135,8 +136,9 @@ class EvidenceProbe(StepProbe):
 
     def step(self, *args, **kwargs):
         if self.display is not None and self.steps == 0:
-            # env.step has applied actions; observe any phase-zero reset before advancing.
-            self.display.sample(self.env, self.traci, self.modes, self.transitions)
+            # env.step has applied actions; check the phase-zero output BEFORE advancing.
+            verify_display(self.display, self.env, self.traci, self.modes,
+                           self.transitions, stage='pre_step_boundary')
             if self.timing is not None:
                 self.timing.boundary_ack(self.display.last_sample)
         if self.display is not None:
@@ -144,10 +146,17 @@ class EvidenceProbe(StepProbe):
             if self.timing is not None and self.steps == 0:
                 self.timing.before_first_step(self.display)
         result = super().step(*args, **kwargs)
-        if self.steps == 1:
-            self.active_programs = read_active_programs(self.env, self.traci)
+        # The first-step programme is retained for the existing handback evidence.
+        # Without HIL, check the active programme EVERY simulation step rather
+        # than only step 1; with HIL PhaseDisplay checks it on every sample.
+        if self.steps == 1 or self.display is None:
+            programs = verify_program(self.env, self.traci,
+                                      stage='after_simulation_step')
+            if self.steps == 1:
+                self.active_programs = programs
         if self.display is not None:
-            self.display.sample(self.env, self.traci, self.modes, self.transitions)
+            verify_display(self.display, self.env, self.traci, self.modes,
+                           self.transitions, stage='after_simulation_step')
             if self.timing is not None and self.steps == 1:
                 self.timing.first_step_ack(self.display.last_sample)
         return result
@@ -185,13 +194,31 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
                 events.write(json.dumps({'event': name, **fields}, allow_nan=False) + '\n')
                 events.flush()
 
+            def record_sp28_failure(exc, cycle, step_in_cycle):
+                # Log before aborting. Do not assert a successful FTSC transition
+                # when the execution or display readback is untrustworthy.
+                try:
+                    t_fault = float(traci_mod.simulation.getTime())
+                    if not math.isfinite(t_fault):
+                        t_fault = None
+                except Exception:
+                    t_fault = None
+                event('execution_readback_FAIL',
+                      **exc.record(sim_time=t_fault, cycle=cycle,
+                                   step_in_cycle=step_in_cycle))
+
             cycle = 0
             while True:
                 start = env.current_step
                 if timing is not None:
                     timing.begin(cycle, start)
                 before = {a: float(env.phase_splits[a]) for a in agents}
-                programs_before = read_active_programs(env, traci_mod)
+                try:
+                    programs_before = verify_program(env, traci_mod,
+                                                     stage='pre_decision_boundary')
+                except SP28ReadbackFailure as exc:
+                    record_sp28_failure(exc, cycle, 0)
+                    raise
                 boundary_start = capture_boundary(cfg, traci_mod)
                 entered_boundary = {}
                 for agent, evidence in slow_switches.items():
@@ -267,7 +294,11 @@ def run_episode(env, policy, cfg, matrix, seed, route, out, *, slow_enabled,
                                    modes=modes_after_act, transitions=transitions, timing=timing) as probe:
                     if timing is not None:
                         timing.mark('env_step_called_at')
-                    obs, _, terminated = env.step(actions)
+                    try:
+                        obs, _, terminated = env.step(actions)
+                    except SP28ReadbackFailure as exc:
+                        record_sp28_failure(exc, cycle, probe.steps)
+                        raise
                 if timing is not None:
                     timing.finish_cycle()
                 complete = probe.steps == env.step_length
