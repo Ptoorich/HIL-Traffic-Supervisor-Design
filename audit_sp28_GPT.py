@@ -88,7 +88,10 @@ def audit_run(folder):
                     "failures": []} for a in agents}
     for sim_t, commanded in sorted(expected.items()):
         records = samples.get(sim_t, [])
-        row = records[0] if len(records) == 1 else None
+        # A cycle boundary is recorded twice: end-of-previous-cycle and
+        # phase-zero reset at the start of the following cycle. The later
+        # sample corresponds to the newly approved command.
+        row = records[-1] if 1 <= len(records) <= 2 else None
         for index, agent in enumerate(("tl1", "tl2")):
             if agent not in commanded:
                 continue
