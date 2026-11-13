@@ -57,7 +57,7 @@ def _record(folder, *, corrupt_mask=False, omit_sample=False,
 def test_sp28_audit_unmodified_agreement_is_100(tmp_path):
     _record(tmp_path)
     result = audit_run(tmp_path)
-    assert result["total"] == {"assessed": 10, "agreed": 10, "failed": 0,
+    assert result["total"] == {"assessed": 8, "agreed": 8, "failed": 0,
                                 "agreement_pct": 100.0}
     assert result["threshold_met_for_assessed_steps"]
     assert result["coverage_complete"]
@@ -66,7 +66,7 @@ def test_sp28_audit_unmodified_agreement_is_100(tmp_path):
 def test_sp28_audit_wrong_gpio_mask_counts_as_failure(tmp_path):
     _record(tmp_path, corrupt_mask=True)
     result = audit_run(tmp_path)
-    assert result["total"]["assessed"] == 10
+    assert result["total"]["assessed"] == 8
     # A 12-bit display mask is shared; no affected agent can be reliably
     # assigned to a single junction, so both are conservatively flagged.
     assert result["total"]["failed"] == 2
@@ -127,7 +127,8 @@ def test_sp28_audit_archived_legacy_ack_log_with_ordering_and_timestamps(tmp_pat
     _to_legacy_log(tmp_path)
     result = audit_run(tmp_path)
     assert result["total"]["agreement_pct"] == 100.0
-    assert result["ack_linkage"]["legacy_inferred_samples"] == 5
+    assert result["simulation_steps_assessed"] == 4
+    assert result["ack_linkage"]["legacy_inferred_samples"] == 4
     assert result["ack_linkage"]["explicit_sequence_samples"] == 0
 
 
@@ -152,3 +153,18 @@ def test_sp28_audit_legacy_multiple_ack_before_sample_is_ambiguous(tmp_path):
     result = audit_run(tmp_path)
     assert result["total"]["failed"] == 2
     assert result["ack_linkage"]["legacy_unmatched_or_ambiguous_samples"] == 1
+
+def test_sp28_audit_boundary_uses_previous_cycle_post_step_readback(tmp_path):
+    _record(tmp_path, duplicated_boundary=True)
+    path = tmp_path / "display_GPT.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    boundary_samples = [row for row in rows if row.get("event") == "sample"
+                        and row.get("sim_time") == 4]
+    assert len(boundary_samples) == 2
+    # The second sample reflects the *new* next-cycle programme and must not
+    # be compared against the final executed step of the previous cycle.
+    boundary_samples[1]["programs"]["tl1"]["green_a"] = 42
+    _write(path, rows)
+    result = audit_run(tmp_path)
+    assert result["simulation_steps_assessed"] == 4
+    assert result["total"]["agreement_pct"] == 100.0
